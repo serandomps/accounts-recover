@@ -3,20 +3,17 @@ var serand = require('serand');
 var utils = require('utils');
 var captcha = require('captcha');
 var form = require('form');
-var auth = require('auth');
-var token = require('token');
-var redirect = serand.redirect;
 
-dust.loadSource(dust.compile(require('./template'), 'accounts-signin'));
+dust.loadSource(dust.compile(require('./template'), 'accounts-recover'));
 
 var configs = {
-    username: {
+    email: {
         find: function (context, source, done) {
             done(null, $('input', source).val());
         },
         validate: function (context, data, value, done) {
             if (!value) {
-                return done(null, 'Please enter your username');
+                return done(null, 'Please enter your email');
             }
             if (!is.email(value)) {
                 return done(null, 'Please enter a valid email address');
@@ -27,44 +24,14 @@ var configs = {
             $('input', source).val(value);
             done()
         }
-    },
-    password: {
-        find: function (context, source, done) {
-            done(null, $('input', source).val());
-        },
-        validate: function (context, data, value, done) {
-            if (!value) {
-                return done(null, 'Please enter your password');
-            }
-            done(null, null, value);
-        },
-        update: function (context, source, error, value, done) {
-            $('input', source).val(value);
-            done();
-        }
-    },
+    }
 };
 
 module.exports = function (ctx, container, options, done) {
     var sandbox = container.sandbox;
-    var home = options.location || '/';
-    var signup = 'accounts:///signup';
-    var suffix = '';
-    var append = function (suff) {
-        suffix += (suffix ? '&' : '?') + suff;
-    };
-    if (options.clientId) {
-        append('client_id=' + options.clientId);
-    }
-    if (options.location) {
-        append('redirect_uri=' + options.location);
-    }
-    signup += suffix;
-    signup = utils.resolve(signup);
-
     var captchaId;
 
-    dust.render('accounts-signin', {id: container.id, home: home, signup: signup}, function (err, out) {
+    dust.render('accounts-recover', {id: container.id}, function (err, out) {
         if (err) {
             return done(err);
         }
@@ -74,8 +41,8 @@ module.exports = function (ctx, container, options, done) {
             if (err) {
                 return done(err);
             }
-            var signin = $('.signin', elem);
-            sandbox.on('click', '.signin', function (e) {
+            var recover = $('.recover', elem);
+            sandbox.on('click', '.recover', function (e) {
                 lform.find(function (err, data) {
                     if (err) {
                         return console.error(err);
@@ -89,7 +56,7 @@ module.exports = function (ctx, container, options, done) {
                                 if (err) {
                                     return console.error(err);
                                 }
-                                signin.removeAttr('disabled');
+                                recover.removeAttr('disabled');
                             });
                             return;
                         }
@@ -106,7 +73,7 @@ module.exports = function (ctx, container, options, done) {
                                         if (err) {
                                             return console.error(err);
                                         }
-                                        signin.removeAttr('disabled');
+                                        recover.removeAttr('disabled');
                                     });
                                     return;
                                 }
@@ -117,10 +84,11 @@ module.exports = function (ctx, container, options, done) {
                                     if (!xcaptcha) {
                                         return;
                                     }
-                                    authenticate(captcha, captchaId, xcaptcha, data.username, data.password, options, function (err) {
+                                    recovery(captcha, captchaId, xcaptcha, data.email, options, function (err) {
                                         if (err) {
                                             return console.error(err);
                                         }
+                                        serand.direct('/recovered?email=' + data.email);
                                     });
                                 });
                             });
@@ -129,28 +97,14 @@ module.exports = function (ctx, container, options, done) {
                 });
                 return false;
             });
-            sandbox.on('click', '.facebook', function (e) {
-                serand.store('oauth', {
-                    type: 'facebook',
-                    clientId: options.clientId,
-                    location: options.location
-                });
-                auth.authenticator({
-                    type: 'facebook',
-                    location: utils.resolve('accounts:///auth/oauth')
-                }, function (err, uri) {
-                    redirect(uri);
-                });
-                return false;
-            });
             done(null, {
                 clean: function () {
-                    $('.signin', sandbox).remove();
+
                 },
                 ready: function () {
                     captcha.render($('.captcha', sandbox), {
                         success: function () {
-                            $('.signin', sandbox).removeAttr('disabled');
+                            $('.recover', sandbox).removeAttr('disabled');
                         }
                     }, function (err, id) {
                         if (err) {
@@ -164,44 +118,27 @@ module.exports = function (ctx, container, options, done) {
     });
 };
 
-var authenticate = function (captcha, captchaId, xcaptcha, username, password, options, done) {
+var recovery = function (captcha, captchaId, xcaptcha, email, options, done) {
     $.ajax({
         method: 'POST',
-        url: utils.resolve('accounts:///apis/v/tokens'),
-        data: {
-            client_id: options.clientId,
-            redirect_uri: options.location,
-            grant_type: 'password',
-            username: username,
-            password: password,
-        },
+        url: utils.resolve('accounts:///apis/v/users'),
+        data: JSON.stringify({
+            query: {
+                email: email
+            }
+        }),
         headers: {
+            'X-Action': 'recover',
             'X-Captcha': xcaptcha
         },
-        contentType: 'application/x-www-form-urlencoded',
+        contentType: 'application/json',
         dataType: 'json',
-        success: function (tok) {
-            var user = {
-                tid: tok.id,
-                username: username,
-                access: tok.access_token,
-                refresh: tok.refresh_token,
-                expires: tok.expires_in
-            };
-            token.findOne(user.tid, user.access, function (err, tok) {
-                if (err) {
-                    serand.emit('user', 'login error', err);
-                    return done(err);
-                }
-                user.has = tok.has;
-                serand.emit('user', 'logged in', user, options);
-                done()
-            });
+        success: function () {
+            done();
         },
         error: function (xhr, status, err) {
             captcha.reset(captchaId, function () {
                 err = err || status || xhr;
-                serand.emit('user', 'login error', err);
                 done(err);
             });
         }
