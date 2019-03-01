@@ -31,12 +31,16 @@ module.exports = function (ctx, container, options, done) {
     var sandbox = container.sandbox;
     var captchaId;
 
-    dust.render('accounts-recover', {id: container.id}, function (err, out) {
+    dust.render('accounts-recover', {
+        _: {
+            container: container.id
+        }
+    }, function (err, out) {
         if (err) {
             return done(err);
         }
         var elem = sandbox.append(out);
-        var lform = form.create(elem, configs);
+        var lform = form.create(container.id, elem, configs);
         lform.render(ctx, {}, function (err) {
             if (err) {
                 return done(err);
