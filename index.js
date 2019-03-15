@@ -92,7 +92,7 @@ module.exports = function (ctx, container, options, done) {
                                         if (err) {
                                             return console.error(err);
                                         }
-                                        serand.direct('/recovered?email=' + data.email);
+                                        serand.redirect('/recovered?email=' + data.email);
                                     });
                                 });
                             });
